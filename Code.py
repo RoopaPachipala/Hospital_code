@@ -98,6 +98,34 @@ for country in countries:
     # Execute the insert query
     spark.sql(insert_query)
 
+# Load Staging Table into DataFrame
+staging_df = spark.sql("SELECT * FROM StagingTable")
+
+# Find the latest consultation for each customer
+latest_consultation_df = staging_df.groupBy("customerID").agg(
+    F.max("lastConsultedDate").alias("latestDate")
+)
+
+# Join back to the staging DataFrame to get full records with the latest date
+latest_full_df = staging_df.join(latest_consultation_df, 
+                                  (staging_df.customerID == latest_consultation_df.customerID) & 
+                                  (staging_df.lastConsultedDate == latest_consultation_df.latestDate))
+
+# Get distinct countries to process
+distinct_countries = latest_full_df.select("country").distinct().collect()
+
+# Loop through each country and insert/update the data
+for row in distinct_countries:
+    country = row['country']
+    table_name = f"Table_{country}"
+    
+    # Filter the DataFrame for the current country
+    country_df = latest_full_df.filter(latest_full_df.country == country)
+    
+    # Write to the corresponding country table (this will insert new records)
+    country_df.write.format("delta").mode("append").saveAsTable(table_name)
+
+
 
 
 
